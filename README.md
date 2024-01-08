@@ -1,6 +1,6 @@
 # React TypeScript Starter Pack
 
-To use this template click `Use this template`
+React Todo App with API.
 
 ### Available Scripts
 
