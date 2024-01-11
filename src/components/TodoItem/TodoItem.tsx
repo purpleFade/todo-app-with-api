@@ -1,179 +1,120 @@
 /* eslint-disable jsx-a11y/label-has-associated-control */
-/* eslint-disable jsx-a11y/control-has-associated-label */
 import cn from 'classnames';
-import React, {
-  useContext, useState, useRef, useEffect,
-} from 'react';
-import { Todo } from '../../types/Todo';
-import { AppContext } from '../TodoContext/TodoContext';
-import * as todoService from '../../api/todos';
+import React, { useEffect, useRef, useState } from 'react';
+import { Todo as TodoType } from '../../types/Todo';
+import { useAppContext } from '../TodoContext/TodoContext';
 
 type Props = {
-  todo: Todo;
+  todo: TodoType;
 };
 
-const ENTER = 'Enter';
-const ESC = 'Escape';
+export const TodoItem: React.FC<Props> = React.memo(({ todo }) => {
+  const {
+    deleteTodo,
+    selectedTodoIds,
+    handleToggleCompleted,
+    updateTodo,
+    loading: loadind,
+    error,
+  } = useAppContext();
 
-export const TodoItem: React.FC<Props> = ({ todo }) => {
-  const { todos, setTodos, updateTodoItem } = useContext(AppContext);
-  const { id, title: initialTitle, completed } = todo;
+  const [isEditing, setIsEditing] = useState(false);
+  const [newTitle, setNewTitle] = useState(todo.title);
 
-  const [editTitle, setEditTitle] = useState(initialTitle);
-  const [isEdit, setIsEdit] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false); // Track delete loader separately
-
-  const editNameRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (editNameRef.current) {
-      editNameRef.current.focus();
-    }
-  }, [isEdit]);
-
-  const handleToggleViewChange = () => {
-    setTodos(
-      todos.map((todoItem) => (todoItem.id === id
-        ? { ...todoItem, completed: !completed } : todoItem)),
-    );
-  };
-
-  const handleTodoTitleChange = (
-    event: React.ChangeEvent<HTMLInputElement>,
-  ) => {
-    setEditTitle(event.target.value);
-  };
-
-  const handleDeleteClick = () => {
-    setIsDeleting(true);
-    todoService.deleteTodo(id).then(() => {
-      setTodos(todos.filter((todoItem) => todoItem.id !== id));
-    }).finally(() => {
-      setIsDeleting(false);
-    });
-    setTodos(todos.filter((todoItem) => todoItem.id !== id));
-  };
-
-  const saveTitle = (value: string) => {
-    if (!value.trim()) {
-      handleDeleteClick(); // Delete the todo if the title is empty
-
-      return;
-    }
-
-    if (value.trim() === initialTitle) {
-      // Cancel editing if the new title is the same as the old one
-      setIsEdit(false);
-
-      return;
-    }
-
-    setIsSaving(true);
-    const updatedTodo = { ...todo, title: value.trim() };
-
-    if (value.trim() !== initialTitle) {
-      updateTodoItem(updatedTodo);
-      setEditTitle(value.trim());
-      setIsEdit(false);
-      setIsSaving(false);
-    } else {
-      setIsEdit(false);
-      setIsSaving(false);
-    }
-  };
-
-  const handleTodoTitleBlur = () => {
-    saveTitle(editTitle);
-  };
-
-  const handleTodoTitleKeyUp = (event: React.KeyboardEvent) => {
+  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    if (event.key === ENTER) {
-      saveTitle(editTitle);
+    if (!newTitle) {
+      deleteTodo(todo.id);
+
+      return;
     }
 
-    if (event.key === ESC) {
-      setEditTitle(initialTitle);
-      setIsEdit(false);
+    if (newTitle.trim() === todo.title.trim()) {
+      setIsEditing(false);
+
+      return;
+    }
+
+    updateTodo({
+      ...todo,
+      title: newTitle.trim(),
+    });
+
+    setIsEditing(false);
+  };
+
+  const handleKeyUp = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Escape') {
+      setIsEditing(false);
+      setNewTitle(todo.title);
     }
   };
 
-  const handleFormSubmit = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault(); // Prevent the default form submission behavior
-    saveTitle(editTitle);
-    setIsEdit(false);
-  };
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (isEditing && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [isEditing, error]);
 
   return (
     <div
+      data-cy="Todo"
       className={cn('todo', {
-        completed: !isEdit && completed,
+        completed: todo.completed,
       })}
+      onDoubleClick={() => setIsEditing(true)}
     >
       <label className="todo__status-label">
         <input
           data-cy="TodoStatus"
           type="checkbox"
           className="todo__status"
-          onChange={handleToggleViewChange}
-          checked={completed}
+          onChange={() => handleToggleCompleted(todo)}
+          checked={todo.completed}
         />
       </label>
 
-      {!isEdit ? (
-        <span
-          onDoubleClick={() => {
-            setIsEdit(true);
-            setEditTitle(initialTitle);
-          }}
-          className="todo__title"
-          data-cy="TodoTitle"
-        >
-          {initialTitle}
-        </span>
+      {isEditing ? (
+        <form onSubmit={handleSubmit} onBlur={handleSubmit}>
+          <input
+            type="text"
+            className="todo__title-field"
+            placeholder="Empty todo will be deleted"
+            ref={inputRef}
+            value={newTitle}
+            onChange={(e) => setNewTitle(e.target.value)}
+            onKeyUp={(e) => handleKeyUp(e)}
+          />
+        </form>
       ) : (
         <>
-          <form onSubmit={handleFormSubmit}>
-            <input
-              type="text"
-              data-cy="TodoTitleField"
-              className="todo__title-field"
-              placeholder="Empty todo will be deleted"
-              ref={editNameRef}
-              onChange={handleTodoTitleChange}
-              onKeyUp={handleTodoTitleKeyUp}
-              onBlur={handleTodoTitleBlur}
-              value={editTitle}
-              disabled={isSaving}
-            />
-          </form>
-          {isSaving && (
-            <div data-cy="TodoLoader" className="modal overlay">
-              <div className="modal-background has-background-white-ter" />
-              <div className="loader" />
-            </div>
-          )}
+          <span data-cy="TodoTitle" className="todo__title">
+            {loadind ? newTitle : todo.title}
+          </span>
+
+          <button
+            type="button"
+            className="todo__remove"
+            data-cy="TodoDelete"
+            onClick={() => deleteTodo(todo.id)}
+          >
+            ×
+          </button>
         </>
       )}
 
-      <button
-        type="button"
-        className="todo__remove"
-        data-cy="TodoDelete"
-        aria-label="deleteTodo"
-        onClick={handleDeleteClick}
+      <div
+        data-cy="TodoLoader"
+        className={cn('modal overlay', {
+          'is-active': selectedTodoIds.includes(todo.id),
+        })}
       >
-        ×
-      </button>
-
-      {isDeleting && (
-        <div data-cy="TodoLoader" className="modal overlay">
-          <div className="modal-background has-background-white-ter" />
-          <div className="loader" />
-        </div>
-      )}
+        <div className="modal-background has-background-white-ter" />
+        <div className="loader" />
+      </div>
     </div>
   );
-};
+});

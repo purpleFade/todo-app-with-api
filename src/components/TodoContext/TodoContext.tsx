@@ -1,6 +1,9 @@
-/* eslint-disable max-len */
 import React, {
-  createContext, useCallback, useMemo, useState,
+  createContext,
+  useCallback,
+  useContext,
+  useMemo,
+  useState,
 } from 'react';
 import { Todo } from '../../types/Todo';
 import { Status } from '../../types/Status';
@@ -27,7 +30,9 @@ interface AppContextType {
   setError: (arg: ErrorType | null) => void;
   loading: boolean;
   setLoading: (arg: boolean) => void;
-  updateTodoItem: (arg: Todo) => void;
+  updateTodo: (arg: Todo) => void;
+  handleToggleCompletedAll: () => void;
+  handleError: (errorMessage: ErrorType) => void;
 }
 
 export const AppContext = createContext<AppContextType>({
@@ -49,7 +54,9 @@ export const AppContext = createContext<AppContextType>({
   setError: () => {},
   loading: false,
   setLoading: () => {},
-  updateTodoItem: () => {},
+  updateTodo: () => {},
+  handleToggleCompletedAll: () => {},
+  handleError: () => {},
 });
 
 type Props = {
@@ -65,56 +72,31 @@ export const AppProvider: React.FC<Props> = ({ children }) => {
   const [error, setError] = useState<ErrorType | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const deleteTodo = useCallback((todoId: number) => {
-    setSelectedTodoIds((currentIds) => [...currentIds, todoId]);
-    todoService
-      .deleteTodo(todoId)
-      .then(() => {
-        setTimeout(() => {
-          setTodos((currentTodos) => currentTodos.filter((post) => post.id !== todoId));
-        }, 500);
-      })
-      .catch(() => {
-        setSelectedTodoIds((ids) => {
-          ids.splice(ids.indexOf(todoId), 1);
-
-          return ids;
-        });
-        setError(ErrorType.cantDeleteTodo);
-        setTimeout(() => setError(null), 2000);
-      })
-      .finally(() => setTimeout(
-        () => setSelectedTodoIds((ids) => ids.splice(ids.indexOf(todoId), 1)),
-        500,
-      ));
+  const handleError = useCallback((errorMessage: ErrorType) => {
+    setError(errorMessage);
+    setTimeout(() => setError(null), 2000);
   }, []);
 
-  const updateTodoItem = useCallback((updatedTodo: Todo) => {
-    setLoading(true);
-    setSelectedTodoIds((ids) => [...ids, updatedTodo.id]);
-
-    todoService.updateTodo(updatedTodo)
-      .then((todo) => {
-        setTodos((currentTodos) => {
-          const newTodos = [...currentTodos];
-          const index = newTodos.findIndex(
-            (newTodo) => newTodo.id === updatedTodo.id,
-          );
-
-          newTodos.splice(index, 1, todo);
-
-          return newTodos;
-        });
-      })
-      .catch(() => {
-        setError(ErrorType.cantUpdateTodo);
-        setTimeout(() => setError(null), 2000);
-      })
-      .finally(() => {
-        setLoading(false);
-        setSelectedTodoIds((ids) => ids.filter((id) => id !== updatedTodo.id));
-      });
-  }, []);
+  const deleteTodo = useCallback(
+    (todoId: number) => {
+      setSelectedTodoIds((currentIds) => [...currentIds, todoId]);
+      todoService
+        .deleteTodo(todoId)
+        .then(() => {
+          setTimeout(() => {
+            setTodos((currentTodos) => currentTodos.filter((post) => post.id !== todoId));
+          }, 500);
+        })
+        .catch(() => {
+          handleError(ErrorType.cantDeleteTodo);
+        })
+        .finally(() => setTimeout(
+          () => setSelectedTodoIds((ids) => ids.filter((id) => id !== todoId)),
+          500,
+        ));
+    },
+    [handleError],
+  );
 
   const clearCompleted = useCallback(() => {
     const completedTodos = todos.filter((todoToFind) => todoToFind.completed);
@@ -124,76 +106,127 @@ export const AppProvider: React.FC<Props> = ({ children }) => {
       ...completedTodos.map((completedTodo) => completedTodo.id),
     ]);
 
-    completedTodos.map((completedTodo) => todoService.deleteTodo(completedTodo.id));
+    const deletePromises = completedTodos
+      .map((completedTodo) => todoService.deleteTodo(completedTodo.id));
 
-    setTimeout(() => {
-      setTodos((currentTodos) => currentTodos.filter((todoToFilter) => !todoToFilter.completed));
-    }, 500);
-  }, [todos]);
-
-  const handleToggleCompleted = useCallback((todoToChange: Todo) => {
-    setSelectedTodoIds((currentIds) => [...currentIds, todoToChange.id]);
-    const updatedTodo = {
-      ...todoToChange,
-      completed: !todoToChange.completed,
-    };
-
-    todoService
-      .setCompleted(updatedTodo)
-      .then((todo) => {
-        setTodos((currentTodos) => {
-          const newTodos = [...currentTodos];
-          const index = newTodos.findIndex(
-            (newTodo) => newTodo.id === updatedTodo.id,
-          );
-
-          newTodos.splice(index, 1, todo);
-
-          return newTodos;
-        });
+    Promise.all(deletePromises)
+      .then(() => {
+        setTodos((currentTodos) => currentTodos.filter((todoToFilter) => !todoToFilter.completed));
       })
-      .finally(() => setTimeout(() => setSelectedTodoIds((ids) => {
-        const newIds = [...ids];
+      .catch(() => handleError(ErrorType.cantDeleteTodo))
+      .finally(() => completedTodos.map((completedTodo) => setSelectedTodoIds((ids) => ids
+        .filter((id) => id !== completedTodo.id))));
+  }, [todos, handleError]);
 
-        newIds.splice(ids.indexOf(todoToChange.id), 1);
+  const handleToggleCompleted = useCallback(
+    (todoToChange: Todo) => {
+      setSelectedTodoIds((currentIds) => [...currentIds, todoToChange.id]);
+      const updatedTodo = {
+        ...todoToChange,
+        completed: !todoToChange.completed,
+      };
 
-        return newIds;
-      })));
-  }, []);
+      todoService
+        .setCompleted(updatedTodo)
+        .then((todo) => {
+          setTodos((currentTodos) => {
+            const newTodos = [...currentTodos];
+            const index = newTodos.findIndex(
+              (newTodo) => newTodo.id === updatedTodo.id,
+            );
 
-  const addTodo = (title: string) => {
-    setLoading(true);
-    setSelectedTodoIds((ids) => [...ids, 0]);
-    setTempTodo({
-      id: 0,
-      userId: USER_ID,
-      title,
-      completed: false,
-    });
+            newTodos[index] = todo;
 
-    todoService
-      .createTodo({
+            return newTodos;
+          });
+        })
+        .catch(() => handleError(ErrorType.cantUpdateTodo))
+        .finally(() => setTimeout(() => setSelectedTodoIds((ids) => ids
+          .filter((id) => id !== todoToChange.id))));
+    },
+    [handleError],
+  );
+
+  const handleToggleCompletedAll = useCallback(() => {
+    const notCompleted = todos.every((todo) => todo.completed);
+
+    if (!notCompleted) {
+      const allCompleted = todos.map((todo) => {
+        if (!todo.completed) {
+          handleToggleCompleted(todo);
+        }
+
+        return todo;
+      });
+
+      setTodos(allCompleted);
+    } else {
+      const allNotCompleted = todos.map((todo) => {
+        handleToggleCompleted(todo);
+
+        return todo;
+      });
+
+      setTodos(allNotCompleted);
+    }
+  }, [todos, handleToggleCompleted]);
+
+  const addTodo = useCallback(
+    (title: string) => {
+      setLoading(true);
+      setSelectedTodoIds((ids) => [...ids, 0]);
+      setTempTodo({
+        id: 0,
         userId: USER_ID,
         title,
         completed: false,
-      })
-      .then((newTodo) => {
-        setTodoTitle('');
-        setTimeout(() => {
-          setTodos((currentTodos) => [...currentTodos, newTodo]);
-        }, 500);
-      })
-      .catch(() => {
-        setSelectedTodoIds((ids) => ids.filter((id) => id !== 0));
-        setError(ErrorType.cantAddTodo);
-        setTimeout(() => setError(null), 2000);
-      })
-      .finally(() => {
-        setLoading(false);
-        setSelectedTodoIds((ids) => ids.filter((id) => id !== 0));
-        setTimeout(() => setTempTodo(null), 500);
       });
-  };
+
+      todoService
+        .createTodo({
+          userId: USER_ID,
+          title,
+          completed: false,
+        })
+        .then((newTodo) => {
+          setTodoTitle('');
+          setTimeout(() => {
+            setTodos((currentTodos) => [...currentTodos, newTodo]);
+          }, 500);
+        })
+        .catch(() => {
+          handleError(ErrorType.cantAddTodo);
+        })
+        .finally(() => {
+          setLoading(false);
+          setSelectedTodoIds((ids) => ids.filter((id) => id !== 0));
+          setTimeout(() => setTempTodo(null), 500);
+        });
+    },
+    [handleError],
+  );
+
+  const updateTodo = useCallback(
+    (updatedTodo: Todo) => {
+      setLoading(true);
+      setSelectedTodoIds((ids) => [...ids, updatedTodo.id]);
+
+      todoService
+        .updateTodo(updatedTodo)
+        .then(() => {
+          setTodos((currentTodos) => currentTodos.map((currentTodo) => (currentTodo
+            .id === updatedTodo.id ? updatedTodo : currentTodo)));
+        })
+        .catch(() => {
+          handleError(ErrorType.cantUpdateTodo);
+        })
+        .finally(() => {
+          setSelectedTodoIds((ids) => ids.filter((id) => id !== updatedTodo.id));
+          setLoading(false);
+        });
+    },
+    [handleError],
+  );
 
   const value = useMemo(
     () => ({
@@ -215,7 +248,9 @@ export const AppProvider: React.FC<Props> = ({ children }) => {
       setError,
       loading,
       setLoading,
-      updateTodoItem,
+      updateTodo,
+      handleToggleCompletedAll,
+      handleError,
     }),
     [
       todos,
@@ -228,8 +263,14 @@ export const AppProvider: React.FC<Props> = ({ children }) => {
       tempTodo,
       error,
       loading,
+      updateTodo,
+      handleToggleCompletedAll,
+      addTodo,
+      handleError,
     ],
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 };
+
+export const useAppContext = () => useContext(AppContext);
