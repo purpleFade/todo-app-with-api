@@ -33,4 +33,4 @@ The React TypeScript Todo App with API is an advanced Todo application developed
  - Display loader during API requests and handle errors.
 
 ## Deployment:
- > Explore the live application [here](https://purplefade.github.io/todo-app-with-api/).
+Explore the live application [here](https://purplefade.github.io/todo-app-with-api/).
